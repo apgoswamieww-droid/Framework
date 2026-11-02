@@ -1,0 +1,22 @@
+
+{
+  "name": "@nova/http",
+  "version": "0.1.0",
+  "description": "Native HTTP engine for NOVA Framework",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT"
+}

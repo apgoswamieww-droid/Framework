@@ -3,6 +3,7 @@
     "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "types": ["node"],
 
     "rootDir": ".",
     "outDir": "dist",
@@ -33,4 +34,5 @@
     "node_modules",
     "dist"
   ]
+  
 }
