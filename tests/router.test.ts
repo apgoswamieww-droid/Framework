@@ -261,4 +261,112 @@ describe("Router", () => {
     }).toThrow("Invalid numeric route parameter: id");
   });
 
+  it("should register routes with a group prefix", () => {
+    const testRouter = new Router();
+
+    testRouter.group("/api", () => {
+      testRouter.get("/users", () => { });
+      testRouter.get("/posts", () => { });
+    });
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(2);
+    expect(routes[0]?.path).toBe("/api/users");
+    expect(routes[1]?.path).toBe("/api/posts");
+  });
+
+  it("should support nested route groups", () => {
+    const testRouter = new Router();
+
+    testRouter.group("/api", () => {
+      testRouter.group("/v1", () => {
+        testRouter.get("/users", () => { });
+      });
+    });
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.path).toBe("/api/v1/users");
+  });
+
+  it("should restore the group prefix after registration", () => {
+    const testRouter = new Router();
+
+    testRouter.group("/api", () => {
+      testRouter.get("/users", () => { });
+    });
+
+    testRouter.get("/dashboard", () => { });
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes[0]?.path).toBe("/api/users");
+    expect(routes[1]?.path).toBe("/dashboard");
+  });
+
+  it("should support a root path inside a route group", () => {
+    const testRouter = new Router();
+
+    testRouter.group("/api", () => {
+      testRouter.get("/", () => { });
+    });
+
+    expect(testRouter.getRoutes()[0]?.path).toBe("/api");
+  });
+
+  it("should restore group prefix when callback throws an error", () => {
+    const testRouter = new Router();
+
+    expect(() => {
+      testRouter.group("/api", () => {
+        testRouter.get("/users", () => { });
+
+        throw new Error("Group registration failed");
+      });
+    }).toThrow("Group registration failed");
+
+    testRouter.get("/dashboard", () => { });
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(2);
+    expect(routes[0]?.path).toBe("/api/users");
+    expect(routes[1]?.path).toBe("/dashboard");
+  });
+
+  it.each([
+    ["api", "missing leading slash"],
+    ["/api/", "trailing slash"],
+    ["/api//v1", "empty path segment"],
+    ["/api?version=1", "query string"],
+    ["/api#users", "hash fragment"],
+    ["/api\\v1", "backslash"]
+  ])("should reject invalid group prefix: %s (%s)", (prefix) => {
+    const testRouter = new Router();
+
+    expect(() => {
+      testRouter.group(prefix, () => {
+        testRouter.get("/users", () => { });
+      });
+    }).toThrow();
+
+    expect(testRouter.getRoutes()).toHaveLength(0);
+  });
+
+  it("should preserve previous prefix after invalid nested group", () => {
+    const testRouter = new Router();
+
+    testRouter.group("/api", () => {
+      expect(() => {
+        testRouter.group("/invalid/", () => { });
+      }).toThrow();
+
+      testRouter.get("/users", () => { });
+    });
+
+    expect(testRouter.getRoutes()[0]?.path).toBe("/api/users");
+  });
+
 });

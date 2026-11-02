@@ -7,13 +7,14 @@ import { RouteMatcher } from "./RouteMatcher.js";
 import { RouteRegistry } from "./RouteRegistry.js";
 import { validateRoutePath } from "./RoutePathValidator.js";
 import { NamedRouteRegistry } from "./NamedRouteRegistry.js";
-import {RouteUrlGenerator,type RouteParameters } from "./RouteUrlGenerator.js";
+import { RouteUrlGenerator, type RouteParameters } from "./RouteUrlGenerator.js";
 
 export class Router {
     private readonly registry: RouteRegistry;
     private readonly matcher: RouteMatcher;
     private readonly namedRoutes: NamedRouteRegistry;
     private readonly urlGenerator: RouteUrlGenerator;
+    private groupPrefix = "";
 
     constructor() {
         this.registry = new RouteRegistry();
@@ -28,7 +29,12 @@ export class Router {
         handler: RouteHandler,
         name?: string
     ): this {
-        validateRoutePath(path);
+        const fullPath =
+            this.groupPrefix && path === "/"
+                ? this.groupPrefix
+                : `${this.groupPrefix}${path}`;
+
+        validateRoutePath(fullPath);
 
         if (name && this.namedRoutes.has(name)) {
             throw new Error(`Route name already registered: ${name}`);
@@ -36,7 +42,7 @@ export class Router {
 
         const route: RouteDefinition = {
             method,
-            path,
+            path: fullPath,
             handler,
             ...(name ? { name } : {})
         };
@@ -73,7 +79,6 @@ export class Router {
         return this.add("GET", path, handler, name);
     }
 
-
     public post(
         path: string,
         handler: RouteHandler,
@@ -81,7 +86,6 @@ export class Router {
     ): this {
         return this.add("POST", path, handler, name);
     }
-
 
     public put(
         path: string,
@@ -91,7 +95,6 @@ export class Router {
         return this.add("PUT", path, handler, name);
     }
 
-
     public patch(
         path: string,
         handler: RouteHandler,
@@ -99,7 +102,6 @@ export class Router {
     ): this {
         return this.add("PATCH", path, handler, name);
     }
-
 
     public delete(
         path: string,
@@ -109,7 +111,6 @@ export class Router {
         return this.add("DELETE", path, handler, name);
     }
 
-
     public options(
         path: string,
         handler: RouteHandler,
@@ -117,7 +118,6 @@ export class Router {
     ): this {
         return this.add("OPTIONS", path, handler, name);
     }
-
 
     public head(
         path: string,
@@ -144,4 +144,22 @@ export class Router {
         return this.urlGenerator.generate(route, parameters);
     }
 
+    public group(prefix: string, callback: () => void): this {
+        validateRoutePath(prefix);
+
+        const previousPrefix = this.groupPrefix;
+
+        this.groupPrefix =
+            prefix === "/"
+                ? previousPrefix
+                : `${previousPrefix}${prefix}`;
+
+        try {
+            callback();
+        } finally {
+            this.groupPrefix = previousPrefix;
+        }
+
+        return this;
+    }
 }
