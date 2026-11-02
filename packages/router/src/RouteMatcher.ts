@@ -1,18 +1,26 @@
-
 import type { RouteDefinition } from "./RouteDefinition.js";
 import { RouteConstraintValidator } from "./RouteConstraintValidator.js";
+import { RouteMatchCache } from "./RouteMatchCache.js";
+import type { RouteMatchTemplate } from "./RouteMatchTemplate.js";
 
 export interface RouteMatch {
     route: RouteDefinition;
     params: Record<string, string>;
 }
 
+/**
+ * Matches a single route segment against the parameter syntax `{name}`.
+ */
+const PARAMETER_PATTERN = /^\{([a-zA-Z_][a-zA-Z0-9_]*)\}$/;
+
 export class RouteMatcher {
 
     private readonly constraintValidator: RouteConstraintValidator;
+    private readonly cache: RouteMatchCache;
 
     constructor() {
         this.constraintValidator = new RouteConstraintValidator();
+        this.cache = new RouteMatchCache();
     }
 
     public match(
@@ -21,13 +29,14 @@ export class RouteMatcher {
         pathname: string
     ): RouteMatch | undefined {
         const requestSegments = pathname.split("/");
+        const templates = this.cache.getTemplates(routes);
 
-        for (const route of routes) {
-            if (route.method !== method) {
+        for (const template of templates) {
+            if (template.route.method !== method) {
                 continue;
             }
 
-            const routeSegments = route.path.split("/");
+            const routeSegments = template.segments;
 
             if (routeSegments.length !== requestSegments.length) {
                 continue;
@@ -48,9 +57,7 @@ export class RouteMatcher {
                     break;
                 }
 
-                const parameterMatch = /^\{([a-zA-Z_][a-zA-Z0-9_]*)\}$/.exec(
-                    routeSegment
-                );
+                const parameterMatch = PARAMETER_PATTERN.exec(routeSegment);
 
                 if (parameterMatch) {
                     const parameterName = parameterMatch[1];
@@ -61,7 +68,9 @@ export class RouteMatcher {
                     }
 
                     try {
-                        const decodedValue = decodeURIComponent(requestSegment);
+                        const decodedValue = decodeURIComponent(
+                            requestSegment
+                        );
 
                         // Reject encoded path separators and control characters.
                         if (
@@ -95,12 +104,23 @@ export class RouteMatcher {
 
             if (
                 matched &&
-                this.constraintValidator.validate(route, params)
+                this.constraintValidator.validate(
+                    template.route,
+                    params
+                )
             ) {
-                return { route, params };
+                return { route: template.route, params };
             }
         }
 
         return undefined;
+    }
+
+    /**
+     * Invalidates the matching cache. Call this whenever routes are
+     * registered or modified so subsequent matches do not use stale data.
+     */
+    public invalidate(): void {
+        this.cache.invalidate();
     }
 }

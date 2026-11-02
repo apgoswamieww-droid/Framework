@@ -15,6 +15,8 @@ export { RouteRegistry } from "./RouteRegistry.js";
 
 export { RouteMatcher } from "./RouteMatcher.js";
 export type { RouteMatch } from "./RouteMatcher.js";
+export { RouteMatchCache } from "./RouteMatchCache.js";
+export type { RouteMatchTemplate } from "./RouteMatchTemplate.js";
 export { Router } from "./Router.js";
 export type {
   RouteMiddleware,

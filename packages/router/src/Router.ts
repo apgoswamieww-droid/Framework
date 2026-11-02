@@ -73,6 +73,7 @@ export class Router {
         this.constraintValidator.validateDefinition(route);
 
         this.registry.add(route);
+        this.matcher.invalidate();
 
         if (name) {
             this.namedRoutes.add(name, route);
