@@ -57,4 +57,38 @@ describe("Router Constraints Integration", () => {
         );
     });
 
+    it("should generate a named route URL with valid constraints", () => {
+        const router = new Router();
+
+        router.get(
+            "/users/{id}",
+            () => { },
+            "users.show",
+            undefined,
+            {
+                id: (value) => /^\d+$/.test(value)
+            }
+        );
+
+        expect(router.url("users.show", { id: 123 }))
+            .toBe("/users/123");
+    });
+
+    it("should reject a named route URL with invalid constraints", () => {
+        const router = new Router();
+
+        router.get(
+            "/users/{id}",
+            () => { },
+            "users.show",
+            undefined,
+            {
+                id: (value) => /^\d+$/.test(value)
+            }
+        );
+
+        expect(() => router.url("users.show", { id: "abc" }))
+            .toThrow("Route parameters do not satisfy constraints.");
+    });
+
 });

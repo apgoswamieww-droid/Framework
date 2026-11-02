@@ -1,10 +1,18 @@
 import type { RouteDefinition } from "./RouteDefinition.js";
+import { RouteConstraintValidator } from "./RouteConstraintValidator.js";
 
 export type RouteParameters = Record<string, string | number>;
 
 const PARAMETER_PATTERN = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
 export class RouteUrlGenerator {
+
+    private readonly constraintValidator: RouteConstraintValidator;
+
+    constructor() {
+        this.constraintValidator = new RouteConstraintValidator();
+    }
+
     public generate(
         route: RouteDefinition,
         parameters: RouteParameters = {}
@@ -33,6 +41,15 @@ export class RouteUrlGenerator {
                     `Unexpected route parameter: ${parameterName}`
                 );
             }
+        }
+
+        if (!this.constraintValidator.validate(route, Object.fromEntries(
+            [...requiredParameters].map((parameterName) => [
+                parameterName,
+                String(parameters[parameterName])
+            ])
+        ))) {
+            throw new Error("Route parameters do not satisfy constraints.");
         }
 
         return route.path.replace(

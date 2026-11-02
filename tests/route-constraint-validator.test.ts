@@ -131,4 +131,22 @@ describe("RouteConstraintValidator", () => {
         });
     });
 
+
+    it("should reject a parameter when its constraint returns false", () => {
+        const route: RouteDefinition = {
+            method: "GET",
+            path: "/users/{id}",
+            handler: () => { },
+            constraints: {
+                id: () => false
+            }
+        };
+
+        const validator = new RouteConstraintValidator();
+
+        expect(
+            validator.validate(route, { id: "123" })
+        ).toBe(false);
+    });
+
 });

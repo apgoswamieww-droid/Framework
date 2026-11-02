@@ -106,4 +106,64 @@ describe("RouteUrlGenerator", () => {
     });
 
 
+    it("should generate URL when parameters satisfy constraints", () => {
+        const generator = new RouteUrlGenerator();
+
+        const route: RouteDefinition = {
+            method: "GET",
+            path: "/users/{id}",
+            handler: () => { },
+            constraints: {
+                id: (value) => /^\d+$/.test(value)
+            }
+        };
+
+        expect(generator.generate(route, { id: 123 }))
+            .toBe("/users/123");
+    });
+
+    it("should reject URL generation when parameters violate constraints", () => {
+        const generator = new RouteUrlGenerator();
+
+        const route: RouteDefinition = {
+            method: "GET",
+            path: "/users/{id}",
+            handler: () => { },
+            constraints: {
+                id: (value) => /^\d+$/.test(value)
+            }
+        };
+
+        expect(() => generator.generate(route, { id: "abc" }))
+            .toThrow("Route parameters do not satisfy constraints.");
+    });
+
+
+    it("should validate multiple route parameter constraints", () => {
+        const generator = new RouteUrlGenerator();
+
+        const route: RouteDefinition = {
+            method: "GET",
+            path: "/users/{id}/posts/{postId}",
+            handler: () => { },
+            constraints: {
+                id: (value) => /^\d+$/.test(value),
+                postId: (value) => /^\d+$/.test(value)
+            }
+        };
+
+        expect(
+            generator.generate(route, {
+                id: 10,
+                postId: 25
+            })
+        ).toBe("/users/10/posts/25");
+
+        expect(() =>
+            generator.generate(route, {
+                id: 10,
+                postId: "invalid"
+            })
+        ).toThrow("Route parameters do not satisfy constraints.");
+    });
 });
