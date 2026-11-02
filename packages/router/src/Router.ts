@@ -12,6 +12,7 @@ import { NamedRouteRegistry } from "./NamedRouteRegistry.js";
 import { RouteUrlGenerator, type RouteParameters } from "./RouteUrlGenerator.js";
 import type { RouteMiddleware } from "./RouteMiddleware.js";
 import type { RouteParameterConstraint } from "./RouteParameterConstraint.js";
+import { RouteConstraintValidator } from "./RouteConstraintValidator.js";
 
 export class Router {
     private readonly registry: RouteRegistry;
@@ -21,6 +22,7 @@ export class Router {
     private groupPrefix = "";
     private readonly middlewareRunner: RouteMiddlewareRunner;
     private groupMiddleware: readonly RouteMiddleware[] = [];
+    private readonly constraintValidator: RouteConstraintValidator;
 
     constructor() {
         this.registry = new RouteRegistry();
@@ -28,6 +30,7 @@ export class Router {
         this.namedRoutes = new NamedRouteRegistry();
         this.urlGenerator = new RouteUrlGenerator();
         this.middlewareRunner = new RouteMiddlewareRunner();
+        this.constraintValidator = new RouteConstraintValidator();
     }
 
     public add(
@@ -66,6 +69,8 @@ export class Router {
                 : {}),
             ...(constraints ? { constraints } : {})
         };
+
+        this.constraintValidator.validateDefinition(route);
 
         this.registry.add(route);
 
