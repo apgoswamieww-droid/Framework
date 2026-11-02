@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { HttpServer } from "../packages/http/src/Server.js";
+import { createServer } from "node:http";
 
 describe("NOVA HTTP Server Integration", () => {
     let server: HttpServer | undefined;
@@ -248,7 +249,7 @@ describe("NOVA HTTP Server Integration", () => {
         expect(result.headers.get("content-type")).toBeNull();
     });
 
-        it("should return a 302 redirect with Location header", async () => {
+    it("should return a 302 redirect with Location header", async () => {
         server = new HttpServer((_request, response) => {
             response.redirect("/login");
         });
@@ -300,7 +301,7 @@ describe("NOVA HTTP Server Integration", () => {
         }
     );
 
-        it("should block external redirect URLs", async () => {
+    it("should block external redirect URLs", async () => {
         server = new HttpServer((_request, response) => {
             response.redirect("https://evil.com");
         });
@@ -327,4 +328,205 @@ describe("NOVA HTTP Server Integration", () => {
             error: "Internal Server Error"
         });
     });
+
+    it("should prevent starting an already running server", async () => {
+        server = new HttpServer((_request, response) => {
+            response.send("NOVA");
+        });
+
+        await server.start(0);
+
+        expect(() => server?.start(0)).toThrow(
+            "HTTP server is already running."
+        );
+    });
+
+    it("should safely stop the server multiple times", async () => {
+        server = new HttpServer((_request, response) => {
+            response.send("NOVA");
+        });
+
+        await server.start(0);
+
+        await server.stop();
+
+        expect(server.getAddress()).toBeNull();
+
+        await expect(server.stop()).resolves.toBeUndefined();
+    });
+
+    it("should allow restarting the server after stopping", async () => {
+        server = new HttpServer((_request, response) => {
+            response.send("NOVA");
+        });
+
+        await server.start(0);
+
+        await server.stop();
+
+        await expect(server.start(0)).resolves.toBeUndefined();
+
+        expect(server.getAddress()).not.toBeNull();
+    });
+
+    it("should recover after a server startup failure", async () => {
+        const occupiedServer = createServer();
+
+        await new Promise<void>((resolve, reject) => {
+            occupiedServer.once("error", reject);
+
+            occupiedServer.listen(0, "127.0.0.1", () => {
+                occupiedServer.removeAllListeners("error");
+                resolve();
+            });
+        });
+
+        try {
+            const address = occupiedServer.address();
+
+            if (!address || typeof address === "string") {
+                throw new Error("Could not determine occupied port.");
+            }
+
+            server = new HttpServer((_request, response) => {
+                response.send("NOVA restarted successfully");
+            });
+
+            await expect(
+                server.start(address.port, "127.0.0.1")
+            ).rejects.toMatchObject({
+                code: "EADDRINUSE"
+            });
+
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                occupiedServer.close((error) => {
+                    if (error) {
+                        reject(error);
+                        return;
+                    }
+
+                    resolve();
+                });
+            });
+        }
+
+        await expect(
+            server.start(0, "127.0.0.1")
+        ).resolves.toBeUndefined();
+
+        expect(server.getAddress()).not.toBeNull();
+    });
+
+    it("should wait for active requests before graceful shutdown", async () => {
+        let releaseHandler!: () => void;
+        let notifyHandlerStarted!: () => void;
+
+        const handlerStarted = new Promise<void>((resolve) => {
+            notifyHandlerStarted = resolve;
+        });
+
+        const blockedHandler = new Promise<void>((resolve) => {
+            releaseHandler = resolve;
+        });
+
+        server = new HttpServer(async (_request, response) => {
+            notifyHandlerStarted();
+
+            await blockedHandler;
+
+            response.send("Request completed successfully");
+        });
+
+        await server.start(0);
+
+        const address = server.getAddress();
+
+        if (!address || typeof address === "string") {
+            throw new Error("Could not determine server address.");
+        }
+
+        const requestPromise = fetch(
+            `http://127.0.0.1:${address.port}/active-request`
+        );
+
+        await handlerStarted;
+
+        let stopCompleted = false;
+
+        const stopPromise = server.stop().then(() => {
+            stopCompleted = true;
+        });
+
+        await Promise.resolve();
+
+        expect(stopCompleted).toBe(false);
+
+        releaseHandler();
+
+        const result = await requestPromise;
+
+        expect(result.status).toBe(200);
+
+        expect(await result.text()).toBe(
+            "Request completed successfully"
+        );
+
+        await stopPromise;
+
+        expect(stopCompleted).toBe(true);
+        expect(server.getAddress()).toBeNull();
+    });
+
+    it("should reuse the same shutdown operation for concurrent stop calls", async () => {
+        let releaseHandler!: () => void;
+        let notifyHandlerStarted!: () => void;
+
+        const handlerStarted = new Promise<void>((resolve) => {
+            notifyHandlerStarted = resolve;
+        });
+
+        const blockedHandler = new Promise<void>((resolve) => {
+            releaseHandler = resolve;
+        });
+
+        server = new HttpServer(async (_request, response) => {
+            notifyHandlerStarted();
+
+            await blockedHandler;
+
+            response.send("Request completed");
+        });
+
+        await server.start(0);
+
+        const address = server.getAddress();
+
+        if (!address || typeof address === "string") {
+            throw new Error("Could not determine server address.");
+        }
+
+        const requestPromise = fetch(
+            `http://127.0.0.1:${address.port}/active`
+        );
+
+        await handlerStarted;
+
+        const firstStop = server.stop();
+        const secondStop = server.stop();
+
+        expect(firstStop).toBe(secondStop);
+
+        releaseHandler();
+
+        const result = await requestPromise;
+
+        expect(result.status).toBe(200);
+        expect(await result.text()).toBe("Request completed");
+
+        await Promise.all([firstStop, secondStop]);
+
+        expect(server.getAddress()).toBeNull();
+    });
+
 });

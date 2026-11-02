@@ -16,7 +16,7 @@ export type HttpHandler = (
 
 export class HttpServer {
   private server: NodeHttpServer | null = null;
-
+  private stopPromise: Promise<void> | null = null;
   constructor(
     private readonly handler: HttpHandler
   ) { }
@@ -65,40 +65,34 @@ export class HttpServer {
 
     return new Promise((resolve, reject) => {
       const onError = (error: Error): void => {
-        this.server = null;
+        server.off("error", onError);
+
+        if (this.server === server) {
+          this.server = null;
+        }
+
         reject(error);
       };
 
       server.once("error", onError);
 
-      server.listen(port, host, () => {
+      try {
+        server.listen(port, host, () => {
+          server.off("error", onError);
+          resolve();
+        });
+      } catch (error) {
         server.off("error", onError);
-        resolve();
-      });
+
+        if (this.server === server) {
+          this.server = null;
+        }
+
+        reject(error);
+      }
     });
   }
 
-  private sendInternalServerError(outgoing: ServerResponse): void {
-
-    if (outgoing.writableEnded || outgoing.destroyed) {
-      return;
-    }
-
-    if (outgoing.headersSent) {
-      outgoing.destroy();
-      return;
-    }
-
-    outgoing.writeHead(500, {
-      "Content-Type": "application/json; charset=utf-8"
-    });
-
-    outgoing.end(
-      JSON.stringify({
-        error: "Internal Server Error"
-      })
-    );
-  }
 
   public getAddress(): ReturnType<NodeHttpServer["address"]> {
     return this.server?.address() ?? null;
@@ -111,20 +105,28 @@ export class HttpServer {
       return Promise.resolve();
     }
 
-    return new Promise((resolve, reject) => {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
+    this.stopPromise = new Promise<void>((resolve, reject) => {
       server.close((error?: Error) => {
+        if (this.server === server) {
+          this.server = null;
+        }
+
+        this.stopPromise = null;
+
         if (error) {
           reject(error);
           return;
         }
 
-        if (this.server === server) {
-          this.server = null;
-        }
-
         resolve();
       });
     });
+
+    return this.stopPromise;
   }
 
   private sendError(
