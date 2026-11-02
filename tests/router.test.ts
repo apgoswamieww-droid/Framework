@@ -2,6 +2,10 @@
 import { describe, expect, it } from "vitest";
 
 import { Router } from "../packages/router/src/Router.js";
+import type {
+  RouteMiddleware,
+  RouteHandler
+} from "../packages/router/src/index.js";
 
 describe("Router", () => {
   it("should register GET routes", () => {
@@ -367,6 +371,363 @@ describe("Router", () => {
     });
 
     expect(testRouter.getRoutes()[0]?.path).toBe("/api/users");
+  });
+
+  it("should register middleware for GET routes", () => {
+    const testRouter = new Router();
+
+    const middleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const handler: RouteHandler = () => { };
+
+    testRouter.get("/admin", handler, "admin.dashboard", [middleware]);
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.middleware).toEqual([middleware]);
+  });
+
+  it("should register middleware for all other HTTP methods", () => {
+    const testRouter = new Router();
+
+    const middleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const handler: RouteHandler = () => { };
+
+    testRouter.post("/posts", handler, undefined, [middleware]);
+    testRouter.put("/posts/{id}", handler, undefined, [middleware]);
+    testRouter.patch("/posts/{id}", handler, undefined, [middleware]);
+    testRouter.delete("/posts/{id}", handler, undefined, [middleware]);
+    testRouter.options("/posts", handler, undefined, [middleware]);
+    testRouter.head("/posts", handler, undefined, [middleware]);
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(6);
+
+    for (const route of routes) {
+      expect(route.middleware).toEqual([middleware]);
+    }
+  });
+
+  it("should execute route middleware before the route handler", async () => {
+    const testRouter = new Router();
+    const executionOrder: string[] = [];
+
+    const middleware: RouteMiddleware = async (_context, next) => {
+      executionOrder.push("middleware-before");
+
+      await next();
+
+      executionOrder.push("middleware-after");
+    };
+
+    const handler: RouteHandler = () => {
+      executionOrder.push("handler");
+    };
+
+    testRouter.get("/admin", handler, undefined, [middleware]);
+
+    const route = testRouter.getRoutes()[0];
+
+    expect(route).toBeDefined();
+
+    if (!route) {
+      throw new Error("Route was not registered.");
+    }
+
+    await testRouter.execute(route, {
+      params: {},
+      query: {}
+    });
+
+    expect(executionOrder).toEqual([
+      "middleware-before",
+      "handler",
+      "middleware-after"
+    ]);
+  });
+
+  it("should stop route execution when middleware does not call next()", async () => {
+    const testRouter = new Router();
+
+    let handlerExecuted = false;
+
+    const middleware: RouteMiddleware = () => {
+      // Stop execution intentionally.
+    };
+
+    const handler: RouteHandler = () => {
+      handlerExecuted = true;
+    };
+
+    testRouter.get("/admin", handler, undefined, [middleware]);
+
+    const route = testRouter.getRoutes()[0];
+
+    expect(route).toBeDefined();
+
+    if (!route) {
+      throw new Error("Route was not registered.");
+    }
+
+    await testRouter.execute(route, {
+      params: {},
+      query: {}
+    });
+
+    expect(handlerExecuted).toBe(false);
+  });
+
+  it("should propagate middleware errors during route execution", async () => {
+    const testRouter = new Router();
+
+    const middleware: RouteMiddleware = async () => {
+      throw new Error("Authentication failed.");
+    };
+
+    const handler: RouteHandler = () => { };
+
+    testRouter.get("/admin", handler, undefined, [middleware]);
+
+    const route = testRouter.getRoutes()[0];
+
+    expect(route).toBeDefined();
+
+    if (!route) {
+      throw new Error("Route was not registered.");
+    }
+
+    await expect(
+      testRouter.execute(route, {
+        params: {},
+        query: {}
+      })
+    ).rejects.toThrow("Authentication failed.");
+  });
+
+  it("should apply group middleware to all group routes", () => {
+    const testRouter = new Router();
+
+    const middleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const handler: RouteHandler = () => { };
+
+    testRouter.group(
+      "/admin",
+      () => {
+        testRouter.get("/dashboard", handler);
+        testRouter.get("/users", handler);
+      },
+      [middleware]
+    );
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(2);
+    expect(routes[0]?.middleware).toEqual([middleware]);
+    expect(routes[1]?.middleware).toEqual([middleware]);
+  });
+
+  it("should combine parent and nested group middleware", () => {
+    const testRouter = new Router();
+
+    const parentMiddleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const childMiddleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const handler: RouteHandler = () => { };
+
+    testRouter.group("/api", () => {
+      testRouter.group(
+        "/admin",
+        () => {
+          testRouter.get("/dashboard", handler);
+        },
+        [childMiddleware]
+      );
+    }, [parentMiddleware]);
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.path).toBe("/api/admin/dashboard");
+
+    expect(routes[0]?.middleware).toEqual([
+      parentMiddleware,
+      childMiddleware
+    ]);
+  });
+
+  it("should execute nested group middleware in correct order", async () => {
+    const testRouter = new Router();
+    const executionOrder: string[] = [];
+
+    const parentMiddleware: RouteMiddleware = async (_context, next) => {
+      executionOrder.push("parent-before");
+      await next();
+      executionOrder.push("parent-after");
+    };
+
+    const childMiddleware: RouteMiddleware = async (_context, next) => {
+      executionOrder.push("child-before");
+      await next();
+      executionOrder.push("child-after");
+    };
+
+    const handler: RouteHandler = () => {
+      executionOrder.push("handler");
+    };
+
+    testRouter.group("/api", () => {
+      testRouter.group(
+        "/admin",
+        () => {
+          testRouter.get("/dashboard", handler);
+        },
+        [childMiddleware]
+      );
+    }, [parentMiddleware]);
+
+    const route = testRouter.getRoutes()[0];
+
+    if (!route) {
+      throw new Error("Route was not registered.");
+    }
+
+    await testRouter.execute(route, {
+      params: {},
+      query: {}
+    });
+
+    expect(executionOrder).toEqual([
+      "parent-before",
+      "child-before",
+      "handler",
+      "child-after",
+      "parent-after"
+    ]);
+  });
+
+  it("should restore group middleware after leaving the group", () => {
+    const testRouter = new Router();
+
+    const groupMiddleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const handler: RouteHandler = () => { };
+
+    testRouter.group(
+      "/admin",
+      () => {
+        testRouter.get("/dashboard", handler);
+      },
+      [groupMiddleware]
+    );
+
+    testRouter.get("/home", handler);
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(2);
+
+    expect(routes[0]?.middleware).toEqual([groupMiddleware]);
+
+    expect(routes[1]?.path).toBe("/home");
+    expect(routes[1]?.middleware).toBeUndefined();
+  });
+
+  it("should execute group middleware before route middleware", async () => {
+    const testRouter = new Router();
+    const executionOrder: string[] = [];
+
+    const groupMiddleware: RouteMiddleware = async (_context, next) => {
+      executionOrder.push("group-before");
+      await next();
+      executionOrder.push("group-after");
+    };
+
+    const routeMiddleware: RouteMiddleware = async (_context, next) => {
+      executionOrder.push("route-before");
+      await next();
+      executionOrder.push("route-after");
+    };
+
+    const handler: RouteHandler = () => {
+      executionOrder.push("handler");
+    };
+
+    testRouter.group(
+      "/admin",
+      () => {
+        testRouter.get(
+          "/dashboard",
+          handler,
+          undefined,
+          [routeMiddleware]
+        );
+      },
+      [groupMiddleware]
+    );
+
+    const route = testRouter.getRoutes()[0];
+
+    if (!route) {
+      throw new Error("Route was not registered.");
+    }
+
+    await testRouter.execute(route, {
+      params: {},
+      query: {}
+    });
+
+    expect(executionOrder).toEqual([
+      "group-before",
+      "route-before",
+      "handler",
+      "route-after",
+      "group-after"
+    ]);
+  });
+
+  it("should restore group middleware after callback error", () => {
+    const testRouter = new Router();
+
+    const groupMiddleware: RouteMiddleware = async (_context, next) => {
+      await next();
+    };
+
+    const handler: RouteHandler = () => { };
+
+    expect(() => {
+      testRouter.group(
+        "/admin",
+        () => {
+          throw new Error("Group callback failed.");
+        },
+        [groupMiddleware]
+      );
+    }).toThrow("Group callback failed.");
+
+    testRouter.get("/home", handler);
+
+    const routes = testRouter.getRoutes();
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.path).toBe("/home");
+    expect(routes[0]?.middleware).toBeUndefined();
   });
 
 });

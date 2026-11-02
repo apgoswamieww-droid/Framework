@@ -1,5 +1,6 @@
 
 import type { RouteDefinition } from "./RouteDefinition.js";
+import { RouteConstraintValidator } from "./RouteConstraintValidator.js";
 
 export interface RouteMatch {
     route: RouteDefinition;
@@ -7,6 +8,13 @@ export interface RouteMatch {
 }
 
 export class RouteMatcher {
+
+    private readonly constraintValidator: RouteConstraintValidator;
+
+    constructor() {
+        this.constraintValidator = new RouteConstraintValidator();
+    }
+
     public match(
         routes: readonly RouteDefinition[],
         method: string,
@@ -85,7 +93,10 @@ export class RouteMatcher {
                 }
             }
 
-            if (matched) {
+            if (
+                matched &&
+                this.constraintValidator.validate(route, params)
+            ) {
                 return { route, params };
             }
         }
